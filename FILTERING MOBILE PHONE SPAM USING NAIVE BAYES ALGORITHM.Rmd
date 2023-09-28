@@ -1,0 +1,193 @@
+---
+title: "FILTERING MOBILE PHONE SPAM USING NAIVE BAYES"
+author: "VALINE OKEYO"
+date: "2023-09-26"
+output: html_document
+---
+
+# Import Dataset
+```{r}
+library(readr)
+sms_spam <- read_csv("C:/Users/user/Downloads/sms_spam.csv")
+View(sms_spam)
+```
+
+#Structure of Dataset
+```{r}
+str(sms_spam)
+```
+# Convert variable "type" to a factor
+```{r}
+sms_spam$type <- as.factor(sms_spam$type)
+```
+
+```{r}
+str(sms_spam$type)
+```
+```{r}
+table(sms_spam$type)
+```
+
+# For Text Data Processing,
+```{r}
+install.packages("tm")
+library(tm)
+```
+
+
+# To process the text data, we need to create a corpus(collection of text documents)
+```{r}
+sms_corpus <- Corpus(VectorSource(sms_spam$text))
+print(sms_corpus)
+```
+#To look at the contents of the corpus, e.g with the first three texts;
+```{r}
+inspect(sms_corpus[1:3])
+```
+
+# Convert all of the SMS messages to lowercase and remove any numbers
+```{r}
+corpus_clean <- tm_map(sms_corpus,tolower)
+corpus_clean <- tm_map(corpus_clean,removeNumbers)
+```
+
+#Remove filler words such as "to", "and", "but", and "or"
+```{r}
+corpus_clean <- tm_map(corpus_clean, removeWords, stopwords())
+```
+
+# We'll also remove punctuation
+```{r}
+corpus_clean <- tm_map(corpus_clean, removePunctuation)
+```
+
+# Remove additional whitespace, leaving only a single space between words
+```{r}
+corpus_clean <- tm_map(corpus_clean,stripWhitespace)
+```
+```{r}
+inspect(corpus_clean[1:3])
+```
+
+# Now split the messages into individual components through a process called tokenization
+```{r}
+sms_dtm <- DocumentTermMatrix(corpus_clean)
+```
+
+
+# Creating Training and Test Datasets
+# We'll begin by splitting the raw data frame
+```{r}
+sms_spam_train <- sms_spam[1:4181,]
+sms_spam_test <- sms_spam[4182:5574,]
+```
+
+#Then the document-term matrix
+```{r}
+sms_dtm_train <- sms_dtm[1:4181,]
+sms_dtm_test <- sms_dtm[4182:5574,]
+```
+
+#And finally the Corpus
+```{r}
+sms_corpus_train <- corpus_clean[1:4181]
+sms_corpus_test <- corpus_clean[4182:5574]
+```
+
+# To confirm that the subsets are representative of the complete set of SMS data,
+```{r}
+prop.table(table(sms_spam_train$type))
+prop.table(table(sms_spam_test$type))
+```
+
+- Both the training data and test data contain about 13 percent spam. This suggests 
+that the spam messages were divided evenly between the two datasets.
+
+# Visualizing text data- Word Clouds
+```{r}
+install.packages("wordcloud")
+```
+  
+```{r}
+library(wordcloud)
+wordcloud(sms_corpus_train, min.freq = 40, random.order = FALSE)
+```
+-  The spam cloud is on the left. Spam SMS messages include words such as urgent, free, mobile, call, claim, and stop; these terms do not appear in the ham cloud at all. Instead, ham messages use words such as can, sorry, need, and time. These stark differences suggest that our naive Bayes model will have some strong key words to differentiate between the classes.
+
+# Alternatively:
+
+```{r}
+spam <- subset(sms_spam_train,type=="spam")
+ham <- subset(sms_spam_train,type=="ham")
+wordcloud(spam$text, max.words = 40, scale = c(3,1))
+wordcloud(ham$text,max.words = 40,scale = c(3,1))
+```
+
+
+
+# Creating Indicator features for frequent words
+# display a character vector of the words appearing at least 5times in the sms_dtm_train matrix
+```{r}
+library(tm)
+frequent_terms <- findFreqTerms(sms_dtm_train,5) #character vectors that appear at least 5 times in sms_dtm_train matrix
+str(frequent_terms)
+term_list <- as.list(frequent_terms)
+```
+
+
+##To save this list of frequent terms for later use,
+```{r}
+install.packages("quanteda")
+library(quanteda)
+sms_dict <- dictionary(list(terms = findFreqTerms(sms_dtm_train, 5)))
+```
+
+
+#To limit our training and test matrixes to only the words in the preceding dictionary;
+
+```{r}
+sms_train <- DocumentTermMatrix(sms_corpus_train,dictionary(sms_dict))
+
+
+sms_test <- DocumentTermMatrix(sms_corpus_test,dictionary(sms_dict))                                                             
+```
+
+
+```{r}
+convert_counts <- function(x) {
+ x <- ifelse(x > 0, 1, 0)
+ x <- factor(x, levels = c(0, 1), labels = c("No", "Yes"))
+ return(x)
+ }
+```
+
+
+```{r}
+sms_train <- apply(sms_train, MARGIN = 2, convert_counts)
+
+sms_test <- apply(sms_test, MARGIN = 2, convert_counts)
+```
+
+
+```{r}
+library(e1071)
+sms_classifier <- naiveBayes(sms_train, sms_spam_train$type)
+```
+
+
+```{r}
+sms_test_pred <- predict(sms_classifier,sms_test)
+```
+
+
+```{r}
+library(gmodels)
+
+CrossTable(sms_test_pred, sms_spam_test$type,
+ prop.chisq = TRUE, prop.t = FALSE,
+ dnn = c('predicted', 'actual'))
+```
+
+- We can see that 12 out of 1211 ham messages were incorrectly classified as spam while 16 out 182
+spam messages were incorrectly classified as ham. Considering the little effort we put into the project, this level of performance seems quite impressive.
+
